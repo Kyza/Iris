@@ -1,6 +1,7 @@
 package net.coderbot.iris.shaderpack;
 
-import java.io.IOException;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -9,6 +10,16 @@ import java.util.Optional;
 import java.util.Properties;
 
 import net.coderbot.iris.Iris;
+import net.coderbot.iris.gl.texture.InternalTextureFormat;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.texture.NativeImage;
+import net.minecraft.client.texture.NativeImageBackedTexture;
+import net.minecraft.util.Identifier;
+import net.minecraft.util.InvalidIdentifierException;
+import net.minecraft.util.registry.BuiltinRegistries;
+import net.minecraft.util.registry.DynamicRegistryManager;
+import net.minecraft.util.registry.Registry;
+import net.minecraft.world.World;
 import org.apache.logging.log4j.Level;
 import org.jetbrains.annotations.Nullable;
 
@@ -21,6 +32,7 @@ public class ShaderPack {
 
 	private final IdMap idMap;
 	private final Map<String, Map<String, String>> langMap;
+	private final ShaderProperties shaderProperties;
 
 	public ShaderPack(Path root) throws IOException {
 		ShaderProperties shaderProperties = loadProperties(root, "shaders.properties")
@@ -44,7 +56,12 @@ public class ShaderPack {
 			return new ProgramSet(sub, root, shaderProperties, pack);
 		}
 
-		return null;
+		this.compositeFinal = readProgramSource(root, "final", this, shaderProperties);
+
+		this.idMap = new IdMap(root);
+		this.langMap = parseLangEntries(root);
+
+		this.shaderProperties = shaderProperties;
 	}
 
 	// TODO: Copy-paste from IdMap, find a way to deduplicate this
@@ -88,6 +105,53 @@ public class ShaderPack {
 
 	public Map<String, Map<String, String>> getLangMap() {
 		return langMap;
+	}
+
+	public PackDirectives getPackDirectives() {
+		return packDirectives;
+	}
+
+	public Properties getShaderProperties() {
+		return this.shaderProperties.asProperties();
+	}
+
+	private static ProgramSource readProgramSource(Path root, String program, ShaderPack pack, ShaderProperties properties) throws IOException {
+		String vertexSource = null;
+		String fragmentSource = null;
+
+		try {
+			Path vertexPath = root.resolve(program + ".vsh");
+			vertexSource = readFile(vertexPath);
+
+			if (vertexSource != null) {
+				vertexSource = ShaderPreprocessor.process(root, vertexPath, vertexSource);
+			}
+		} catch (IOException e) {
+			// TODO: Better handling?
+			throw e;
+		}
+
+		try {
+			Path fragmentPath = root.resolve(program + ".fsh");
+			fragmentSource = readFile(fragmentPath);
+
+			if (fragmentSource != null) {
+				fragmentSource = ShaderPreprocessor.process(root, fragmentPath, fragmentSource);
+			}
+		} catch (IOException e) {
+			// TODO: Better handling?
+			throw e;
+		}
+
+		return new ProgramSource(program, vertexSource, fragmentSource, pack, properties);
+	}
+
+	private static String readFile(Path path) throws IOException {
+		try {
+			return new String(Files.readAllBytes(path), StandardCharsets.UTF_8);
+		} catch (FileNotFoundException | NoSuchFileException e) {
+			return null;
+		}
 	}
 
 	private Map<String, Map<String, String>> parseLangEntries(Path root) throws IOException {

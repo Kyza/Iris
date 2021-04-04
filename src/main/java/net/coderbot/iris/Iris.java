@@ -12,6 +12,7 @@ import net.coderbot.iris.pipeline.*;
 import net.coderbot.iris.shaderpack.DimensionId;
 import net.coderbot.iris.shaderpack.ProgramSet;
 import net.coderbot.iris.shaderpack.ShaderPack;
+import net.minecraft.util.Tickable;
 import net.minecraft.client.world.ClientWorld;
 import net.minecraft.util.registry.RegistryKey;
 import net.minecraft.world.World;
@@ -47,6 +48,7 @@ public class Iris implements ClientModInitializer {
 	private static PipelineManager pipelineManager;
 	private static IrisConfig irisConfig;
 	private static FileSystem zipFileSystem;
+
 	private static KeyBinding reloadKeybind;
 
 	@Override
@@ -79,7 +81,6 @@ public class Iris implements ClientModInitializer {
 			logger.catching(Level.ERROR, e);
 		}
 
-
 		loadShaderpack();
 
 		reloadKeybind = KeyBindingHelper.registerKeyBinding(new KeyBinding("iris.keybind.reload", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_R, "iris.keybinds"));
@@ -105,6 +106,10 @@ public class Iris implements ClientModInitializer {
 		});
 
 		pipelineManager = new PipelineManager(Iris::createPipeline);
+	}
+
+	public static Path getShaderPackDir() {
+		return shaderpacksDirectory;
 	}
 
 	public static void loadShaderpack() {
@@ -223,6 +228,8 @@ public class Iris implements ClientModInitializer {
 			logger.error("Failed to load internal shaderpack!");
 			throw new RuntimeException("Failed to load internal shaderpack!", e);
 		}
+
+		getIrisConfig().setShaderPackName("(internal)");
 
 		logger.info("Using internal shaders");
 		currentPackName = "(internal)";

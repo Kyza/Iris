@@ -19,8 +19,10 @@ public class ShaderProperties {
 	Object2ObjectMap<String, AlphaTestOverride> alphaTestOverrides = new Object2ObjectOpenHashMap<>();
 	ObjectSet<String> blendDisabled = new ObjectOpenHashSet<>();
 
+	private final Properties properties;
+
 	private ShaderProperties() {
-		// empty
+		properties = ImmutableProperties.of(new Properties());
 	}
 
 	public ShaderProperties(Properties properties) {
@@ -89,6 +91,7 @@ public class ShaderProperties {
 				blendDisabled.add(pass);
 			});
 		});
+		this.properties = ImmutableProperties.of(properties);
 	}
 
 	private static void handlePassDirective(String prefix, String key, String value, Consumer<String> handler) {
@@ -101,5 +104,35 @@ public class ShaderProperties {
 
 	public static ShaderProperties empty() {
 		return new ShaderProperties();
+	}
+
+	public Properties asProperties() {
+		return properties;
+	}
+
+	private static class ImmutableProperties extends Properties {
+		@Override
+		public Object setProperty(String key, String value) {
+			throw new IllegalStateException("Cannot modify ImmutableProperties");
+		}
+
+		@Override
+		public Object put(Object key, Object value) {
+			throw new IllegalStateException("Cannot modify ImmutableProperties");
+		}
+
+		private void set(Properties properties) {
+			for(String s : properties.stringPropertyNames()) {
+				super.put(s, properties.getProperty(s));
+			}
+		}
+
+		private ImmutableProperties() {}
+
+		public static ImmutableProperties of(Properties properties) {
+			ImmutableProperties i = new ImmutableProperties();
+			i.set(properties);
+			return i;
+		}
 	}
 }
