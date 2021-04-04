@@ -43,11 +43,16 @@ public class IrisConfig {
 	 * Whether to display shader pack config screens in "condensed" view.
 	 */
 	private boolean condenseShaderConfig;
+  /**
+	 * Whether or not shaders are used for rendering. False to disable all shader-based rendering, true to enable it.
+	 */
+	private boolean enableShaders;
 
 	private Path propertiesPath;
 
 	public IrisConfig() {
 		shaderPackName = null;
+		enableShaders = true;
 		propertiesPath = FabricLoader.getInstance().getConfigDir().resolve("iris.properties");
 	}
 
@@ -172,6 +177,13 @@ public class IrisConfig {
 		properties.setProperty("condenseShaderConfig", Boolean.toString(getIfCondensedShaderConfig()));
 
 		return properties;
+  /**
+	 * Determines whether or not shaders are used for rendering.
+	 *
+	 * @return False to disable all shader-based rendering, true to enable shader-based rendering.
+	 */
+	public boolean areShadersEnabled() {
+		return enableShaders;
 	}
 
 	/**
@@ -186,6 +198,8 @@ public class IrisConfig {
 
 		Properties properties = new Properties();
 		properties.load(Files.newInputStream(propertiesPath));
+		shaderPackName = properties.getProperty("shaderPack");
+		enableShaders = !"false".equals(properties.getProperty("enableShaders"));
 
 		this.read(properties);
 	}
@@ -197,6 +211,9 @@ public class IrisConfig {
 	 */
 	public void save() throws IOException {
 		Properties properties = write();
+// 		Properties properties = new Properties();
+// 		properties.setProperty("shaderPack", getShaderPackName());
+// 		properties.setProperty("enableShaders", enableShaders ? "true" : "false");
 		properties.store(Files.newOutputStream(propertiesPath), COMMENT);
 	}
 

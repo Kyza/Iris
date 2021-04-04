@@ -1,6 +1,5 @@
 package net.coderbot.iris.pipeline;
 
-import java.io.IOException;
 import java.util.*;
 
 import com.mojang.blaze3d.platform.GlStateManager;
@@ -11,10 +10,16 @@ import net.coderbot.iris.gl.framebuffer.GlFramebuffer;
 import net.coderbot.iris.gl.program.Program;
 import net.coderbot.iris.gl.program.ProgramBuilder;
 import net.coderbot.iris.layer.GbufferProgram;
+import net.coderbot.iris.postprocess.CompositeRenderer;
 import net.coderbot.iris.rendertarget.NoiseTexture;
+import net.coderbot.iris.rendertarget.RenderTarget;
+import net.coderbot.iris.rendertarget.SingleColorTexture;
 import net.coderbot.iris.rendertarget.RenderTargets;
-import net.coderbot.iris.shaderpack.ShaderPack;
+import net.coderbot.iris.shaderpack.ProgramSet;
+import net.coderbot.iris.shaderpack.ProgramSource;
+import net.coderbot.iris.shadows.EmptyShadowMapRenderer;
 import net.coderbot.iris.uniforms.CommonUniforms;
+import net.coderbot.iris.uniforms.SamplerUniforms;
 import org.jetbrains.annotations.Nullable;
 import org.lwjgl.opengl.GL11C;
 import org.lwjgl.opengl.GL15C;
@@ -30,7 +35,7 @@ import net.minecraft.util.Identifier;
 /**
  * Encapsulates the compiled shader program objects for the currently loaded shaderpack.
  */
-public class ShaderPipeline {
+public class DeferredWorldRenderingPipeline implements WorldRenderingPipeline {
 	private final RenderTargets renderTargets;
 	@Nullable
 	private final Pass basic;
@@ -69,43 +74,77 @@ public class ShaderPipeline {
 	private final GlFramebuffer clearMainBuffers;
 	private final GlFramebuffer baseline;
 
-	private final NoiseTexture noiseTexture;
+	private final EmptyShadowMapRenderer shadowMapRenderer;
+	private final CompositeRenderer compositeRenderer;
+	private final SingleColorTexture normals;
+	private final SingleColorTexture specular;
+	private final NoiseTexture noise;
+
 	private final int waterId;
+	private final float sunPathRotation;
 
 	private static final List<GbufferProgram> programStack = new ArrayList<>();
 	private static final List<String> programStackLog = new ArrayList<>();
 
-	public ShaderPipeline(ShaderPack pack, RenderTargets renderTargets) {
-		this.renderTargets = renderTargets;
-		waterId = pack.getIdMap().getBlockProperties().getOrDefault(new Identifier("minecraft", "water"), -1);
+	public DeferredWorldRenderingPipeline(ProgramSet programs) {
+		Objects.requireNonNull(programs);
 
-		this.basic = pack.getGbuffersBasic().map(this::createPass).orElse(null);
-		this.textured = pack.getGbuffersTextured().map(this::createPass).orElse(basic);
-		this.texturedLit = pack.getGbuffersTexturedLit().map(this::createPass).orElse(textured);
-		this.skyBasic = pack.getGbuffersSkyBasic().map(this::createPass).orElse(basic);
-		this.skyTextured = pack.getGbuffersSkyTextured().map(this::createPass).orElse(textured);
-		this.clouds = pack.getGbuffersClouds().map(this::createPass).orElse(textured);
-		this.terrain = pack.getGbuffersTerrain().map(this::createPass).orElse(texturedLit);
-		this.translucent = pack.getGbuffersWater().map(this::createPass).orElse(terrain);
-		this.damagedBlock = pack.getGbuffersDamagedBlock().map(this::createPass).orElse(terrain);
-		this.weather = pack.getGbuffersWeather().map(this::createPass).orElse(texturedLit);
-		this.beaconBeam = pack.getGbuffersBeaconBeam().map(this::createPass).orElse(textured);
-		this.entities = pack.getGbuffersEntities().map(this::createPass).orElse(texturedLit);
-		this.blockEntities = pack.getGbuffersBlock().map(this::createPass).orElse(terrain);
-		this.glowingEntities = pack.getGbuffersEntitiesGlowing().map(this::createPass).orElse(entities);
-		this.glint = pack.getGbuffersGlint().map(this::createPass).orElse(textured);
-		this.eyes = pack.getGbuffersEntityEyes().map(this::createPass).orElse(textured);
+		this.renderTargets = new RenderTargets(MinecraftClient.getInstance().getFramebuffer(), programs.getPackDirectives());
+		this.waterId = programs.getPack().getIdMap().getBlockProperties().getOrDefault(new Identifier("minecraft", "water"), -1);
+		this.sunPathRotation = programs.getPackDirectives().getSunPathRotation();
 
-		int[] buffersToBeCleared = pack.getPackDirectives().getBuffersToBeCleared().toIntArray();
+		this.basic = programs.getGbuffersBasic().map(this::createPass).orElse(null);
+		this.textured = programs.getGbuffersTextured().map(this::createPass).orElse(basic);
+		this.texturedLit = programs.getGbuffersTexturedLit().map(this::createPass).orElse(textured);
+		this.skyBasic = programs.getGbuffersSkyBasic().map(this::createPass).orElse(basic);
+		this.skyTextured = programs.getGbuffersSkyTextured().map(this::createPass).orElse(textured);
+		this.clouds = programs.getGbuffersClouds().map(this::createPass).orElse(textured);
+		this.terrain = programs.getGbuffersTerrain().map(this::createPass).orElse(texturedLit);
+		this.translucent = programs.getGbuffersWater().map(this::createPass).orElse(terrain);
+		this.damagedBlock = programs.getGbuffersDamagedBlock().map(this::createPass).orElse(terrain);
+		this.weather = programs.getGbuffersWeather().map(this::createPass).orElse(texturedLit);
+		this.beaconBeam = programs.getGbuffersBeaconBeam().map(this::createPass).orElse(textured);
+		this.entities = programs.getGbuffersEntities().map(this::createPass).orElse(texturedLit);
+		this.blockEntities = programs.getGbuffersBlock().map(this::createPass).orElse(terrain);
+		this.glowingEntities = programs.getGbuffersEntitiesGlowing().map(this::createPass).orElse(entities);
+		this.glint = programs.getGbuffersGlint().map(this::createPass).orElse(textured);
+		this.eyes = programs.getGbuffersEntityEyes().map(this::createPass).orElse(textured);
+
+		int[] buffersToBeCleared = programs.getPackDirectives().getBuffersToBeCleared().toIntArray();
 
 		this.clearAltBuffers = renderTargets.createFramebufferWritingToAlt(buffersToBeCleared);
 		this.clearMainBuffers = renderTargets.createFramebufferWritingToMain(buffersToBeCleared);
 		this.baseline = renderTargets.createFramebufferWritingToMain(new int[] {0});
 
-		this.noiseTexture = new NoiseTexture(128, 128);
+		// Don't clobber anything in texture unit 0. It probably won't cause issues, but we're just being cautious here.
+		GlStateManager.activeTexture(GL20C.GL_TEXTURE2);
+
+		// Create some placeholder PBR textures for now
+		normals = new SingleColorTexture(127, 127, 255, 255);
+		specular = new SingleColorTexture(0, 0, 0, 0);
+
+		final int noiseTextureResolution = programs.getPackDirectives().getNoiseTextureResolution();
+		noise = new NoiseTexture(noiseTextureResolution, noiseTextureResolution);
+
+		GlStateManager.activeTexture(GL20C.GL_TEXTURE0);
+
+		this.shadowMapRenderer = new EmptyShadowMapRenderer(2048);
+		this.compositeRenderer = new CompositeRenderer(programs, renderTargets, shadowMapRenderer);
 	}
 
+	private void checkWorld() {
+		// If we're not in a world, then obviously we cannot possibly be rendering a world.
+		if (MinecraftClient.getInstance().world == null) {
+			isRenderingWorld = false;
+			programStackLog.clear();
+			programStack.clear();
+		}
+	}
+
+	@Override
 	public void pushProgram(GbufferProgram program) {
+		checkWorld();
+
 		if (!isRenderingWorld) {
 			// don't mess with non-world rendering
 			return;
@@ -116,7 +155,10 @@ public class ShaderPipeline {
 		programStackLog.add("push:" + program);
 	}
 
+	@Override
 	public void popProgram(GbufferProgram expected) {
+		checkWorld();
+
 		if (!isRenderingWorld) {
 			// don't mess with non-world rendering
 			return;
@@ -139,10 +181,12 @@ public class ShaderPipeline {
 			throw new IllegalStateException("Program stack in invalid state, popped " + popped + " but expected to pop " + expected);
 		}
 
-		Pass poppedPass = getPass(popped);
+		if (popped != GbufferProgram.NONE && popped != GbufferProgram.CLEAR) {
+			Pass poppedPass = getPass(popped);
 
-		if (poppedPass != null) {
-			poppedPass.stopUsing();
+			if (poppedPass != null) {
+				poppedPass.stopUsing();
+			}
 		}
 
 		programStackLog.add("pop:" + popped);
@@ -201,7 +245,28 @@ public class ShaderPipeline {
 	}
 
 	private void useProgram(GbufferProgram program) {
-		beginPass(getPass(program));
+		if (program == GbufferProgram.NONE) {
+			// Note that we don't unbind the framebuffer here. Uses of GbufferProgram.NONE
+			// are responsible for ensuring that the framebuffer is switched properly.
+			GlProgramManager.useProgram(0);
+			return;
+		} else if (program == GbufferProgram.CLEAR) {
+			// Ensure that Minecraft's main framebuffer is cleared, or else very odd issues will happen with shaders
+			// that have composites that don't write to all pixels.
+			MinecraftClient.getInstance().getFramebuffer().beginWrite(true);
+			RenderSystem.clear(GL20C.GL_COLOR_BUFFER_BIT | GL20C.GL_DEPTH_BUFFER_BIT, false);
+
+			// We only want the vanilla clear color to be applied to colortex0.
+			baseline.bind();
+
+			// No geometry should actually be rendered in the CLEAR step, but disable programs to be sure.
+			GlProgramManager.useProgram(0);
+
+			return;
+		}
+
+		Pass pass = getPass(program);
+		beginPass(pass);
 
 		if (program == GbufferProgram.TERRAIN) {
 			if (terrain != null) {
@@ -213,8 +278,13 @@ public class ShaderPipeline {
 
 				// TODO: This is just making it so that all translucent content renders like water. We need to
 				// properly support mc_Entity!
-				setupAttribute(translucent, "mc_Entity", waterId, -1.0F, -1.0F, -1.0F);
+				setupAttribute(translucent, "mc_Entity", 10, waterId, -1.0F, -1.0F, -1.0F);
 			}
+		}
+
+		if (program != GbufferProgram.TRANSLUCENT_TERRAIN && pass != null && pass == translucent) {
+			// Make sure that other stuff sharing the same program isn't rendered like water
+			setupAttribute(translucent, "mc_Entity", 10, -1.0F, -1.0F, -1.0F, -1.0F);
 		}
 	}
 
@@ -223,10 +293,21 @@ public class ShaderPipeline {
 		this.baseline.bind();
 	}
 
+	@Override
 	public boolean shouldDisableVanillaEntityShadows() {
 		// TODO: Don't hardcode this for Sildur's
 		// OptiFine seems to disable vanilla shadows when the shaderpack uses shadow mapping?
 		return true;
+	}
+
+	@Override
+	public boolean shouldDisableDirectionalShading() {
+		return true;
+	}
+
+	@Override
+	public float getSunPathRotation() {
+		return sunPathRotation;
 	}
 
 	private void beginPass(Pass pass) {
@@ -238,21 +319,23 @@ public class ShaderPipeline {
 		}
 	}
 
-	private Pass createPass(ShaderPack.ProgramSource source) {
+	private Pass createPass(ProgramSource source) {
 		// TODO: Properly handle empty shaders
 		Objects.requireNonNull(source.getVertexSource());
 		Objects.requireNonNull(source.getFragmentSource());
 		ProgramBuilder builder;
 
 		try {
-			builder = ProgramBuilder.begin(source.getName(), source.getVertexSource().orElse(null),
+			builder = ProgramBuilder.begin(source.getName(), source.getVertexSource().orElse(null), source.getGeometrySource().orElse(null),
 				source.getFragmentSource().orElse(null));
-		} catch (IOException e) {
+		} catch (RuntimeException e) {
 			// TODO: Better error handling
 			throw new RuntimeException("Shader compilation failed!", e);
 		}
 
-		CommonUniforms.addCommonUniforms(builder, source.getParent().getIdMap());
+		CommonUniforms.addCommonUniforms(builder, source.getParent().getPack().getIdMap(), source.getParent().getPackDirectives());
+		SamplerUniforms.addWorldSamplerUniforms(builder);
+		SamplerUniforms.addDepthSamplerUniforms(builder);
 		GlFramebuffer framebuffer = renderTargets.createFramebufferWritingToMain(source.getDirectives().getDrawBuffers());
 
 		builder.bindAttributeLocation(10, "mc_Entity");
@@ -284,9 +367,31 @@ public class ShaderPipeline {
 		public void use() {
 			// TODO: Binding the texture here is ugly and hacky. It would be better to have a utility function to set up
 			// a given program and bind the required textures instead.
-			GlStateManager.activeTexture(GL15C.GL_TEXTURE15);
-			GlStateManager.bindTexture(noiseTexture.getTextureId());
+			GlStateManager.activeTexture(GL15C.GL_TEXTURE0 + SamplerUniforms.NOISE_TEX);
+			GlStateManager.bindTexture(noise.getTextureId());
+			GlStateManager.activeTexture(GL15C.GL_TEXTURE2);
+			GlStateManager.bindTexture(normals.getTextureId());
+			GlStateManager.activeTexture(GL15C.GL_TEXTURE3);
+			GlStateManager.bindTexture(specular.getTextureId());
+
+			bindTexture(SamplerUniforms.SHADOW_TEX_0, shadowMapRenderer.getDepthTextureId());
+			bindTexture(SamplerUniforms.SHADOW_TEX_1, shadowMapRenderer.getDepthTextureId());
+			bindRenderTarget(SamplerUniforms.COLOR_TEX_4, renderTargets.get(4));
+			bindRenderTarget(SamplerUniforms.COLOR_TEX_5, renderTargets.get(5));
+			bindRenderTarget(SamplerUniforms.COLOR_TEX_6, renderTargets.get(6));
+			bindRenderTarget(SamplerUniforms.COLOR_TEX_7, renderTargets.get(7));
+
+			int depthAttachment = renderTargets.getDepthTexture().getTextureId();
+			int depthAttachmentNoTranslucents = renderTargets.getDepthTextureNoTranslucents().getTextureId();
+
+			bindTexture(SamplerUniforms.DEPTH_TEX_0, depthAttachment);
+			bindTexture(SamplerUniforms.DEPTH_TEX_1, depthAttachmentNoTranslucents);
+			// Note: Since we haven't rendered the hand yet, this won't contain any handheld items.
+			// Once we start rendering the hand before composite content, this will need to be addressed.
+			bindTexture(SamplerUniforms.DEPTH_TEX_2, depthAttachmentNoTranslucents);
+
 			GlStateManager.activeTexture(GL15C.GL_TEXTURE0);
+
 			framebuffer.bind();
 			program.use();
 
@@ -313,16 +418,39 @@ public class ShaderPipeline {
 
 		public void destroy() {
 			this.program.destroy();
-			this.framebuffer.destroy();
 		}
+	}
+
+	private static void bindRenderTarget(int textureUnit, RenderTarget target) {
+		bindTexture(textureUnit, target.getMainTexture());
+	}
+
+	private static void bindTexture(int textureUnit, int texture) {
+		RenderSystem.activeTexture(GL15C.GL_TEXTURE0 + textureUnit);
+		RenderSystem.bindTexture(texture);
 	}
 
 	public void destroy() {
 		destroyPasses(basic, textured, texturedLit, skyBasic, skyTextured, clouds, terrain, translucent, weather);
-		clearAltBuffers.destroy();
-		clearMainBuffers.destroy();
-		baseline.destroy();
-		noiseTexture.destroy();
+
+		// Destroy the composite rendering pipeline
+		//
+		// This destroys all of the loaded composite programs as well.
+		compositeRenderer.destroy();
+
+		// Destroy our render targets
+		//
+		// While it's possible to just clear them instead and reuse them, we'd need to investigate whether or not this
+		// would help performance.
+		renderTargets.destroy();
+
+		// Destroy the shadow map renderer and its render targets
+		shadowMapRenderer.destroy();
+
+		// Destroy the static samplers (specular, normals, and noise)
+		specular.destroy();
+		normals.destroy();
+		noise.destroy();
 	}
 
 	private static void destroyPasses(Pass... passes) {
@@ -347,20 +475,27 @@ public class ShaderPipeline {
 
 		float blockId = -1.0F;
 
-		setupAttribute(pass, "mc_Entity", blockId, -1.0F, -1.0F, -1.0F);
-		setupAttribute(pass, "mc_midTexCoord", 0.0F, 0.0F, 0.0F, 0.0F);
-		setupAttribute(pass, "at_tangent", 1.0F, 0.0F, 0.0F, 1.0F);
+		setupAttribute(pass, "mc_Entity", 10, blockId, -1.0F, -1.0F, -1.0F);
+		setupAttribute(pass, "mc_midTexCoord", 11, 0.0F, 0.0F, 0.0F, 0.0F);
+		setupAttribute(pass, "at_tangent", 12, 1.0F, 0.0F, 0.0F, 1.0F);
 	}
 
-	private static void setupAttribute(Pass pass, String name, float v0, float v1, float v2, float v3) {
+	private static void setupAttribute(Pass pass, String name, int expectedLocation, float v0, float v1, float v2, float v3) {
 		int location = GL20.glGetAttribLocation(pass.getProgram().getProgramId(), name);
 
 		if (location != -1) {
+			if (location != expectedLocation) {
+				throw new IllegalStateException();
+			}
+
 			GL20.glVertexAttrib4f(location, v0, v1, v2, v3);
 		}
 	}
 
-	public void prepareRenderTargets() {
+	private void prepareRenderTargets() {
+		// Make sure we're using texture unit 0 for this.
+		RenderSystem.activeTexture(GL15C.GL_TEXTURE0);
+
 		Framebuffer main = MinecraftClient.getInstance().getFramebuffer();
 		renderTargets.resizeIfNeeded(main.textureWidth, main.textureHeight);
 
@@ -372,12 +507,12 @@ public class ShaderPipeline {
 		// Not clearing the depth buffer since there's only one of those and it was already cleared
 		RenderSystem.clearColor(0.0f, 0.0f, 0.0f, 0.0f);
 		RenderSystem.clear(GL11C.GL_COLOR_BUFFER_BIT, MinecraftClient.IS_SYSTEM_MAC);
-
-		// We only want the vanilla clear color to be applied to colortex0
-		baseline.bind();
 	}
 
-	public void copyCurrentDepthTexture() {
+	@Override
+	public void beginTranslucents() {
+		// We need to copy the current depth texture so that depthtex1 and depthtex2 can contain the depth values for
+		// all non-translucent content, as required.
 		baseline.bind();
 		GlStateManager.bindTexture(renderTargets.getDepthTextureNoTranslucents().getTextureId());
 		GL20C.glCopyTexImage2D(GL20C.GL_TEXTURE_2D, 0, GL20C.GL_DEPTH_COMPONENT, 0, 0, renderTargets.getCurrentWidth(), renderTargets.getCurrentHeight(), 0);
@@ -401,19 +536,38 @@ public class ShaderPipeline {
 	// TODO: better way to avoid this global state?
 	private boolean isRenderingWorld = false;
 
-	public void beginWorldRender() {
+	@Override
+	public void beginWorldRendering() {
 		isRenderingWorld = true;
+
+		checkWorld();
+
+		if (!isRenderingWorld) {
+			Iris.logger.warn("beginWorldRender was called but we are not currently rendering a world?");
+			return;
+		}
 
 		if (!programStack.isEmpty()) {
 			throw new IllegalStateException("Program stack before the start of rendering, something has gone very wrong!");
 		}
+
+		// Get ready for world rendering
+		prepareRenderTargets();
 
 		// Default to rendering with BASIC for all unknown content.
 		// This probably isn't the best approach, but it works for now.
 		pushProgram(GbufferProgram.BASIC);
 	}
 
-	public void endWorldRender() {
+	@Override
+	public void finalizeWorldRendering() {
+		checkWorld();
+
+		if (!isRenderingWorld) {
+			Iris.logger.warn("finalizeWorldRendering was called but we are not currently rendering a world?");
+			return;
+		}
+
 		popProgram(GbufferProgram.BASIC);
 
 		if (!programStack.isEmpty()) {
@@ -425,5 +579,7 @@ public class ShaderPipeline {
 
 		isRenderingWorld = false;
 		programStackLog.clear();
+
+		compositeRenderer.renderAll();
 	}
 }

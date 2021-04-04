@@ -9,6 +9,7 @@ import java.util.function.Supplier;
 import net.minecraft.client.util.math.Vector3f;
 import net.minecraft.client.util.math.Vector4f;
 import net.minecraft.util.math.Matrix4f;
+import net.minecraft.util.math.Vec2f;
 import net.minecraft.util.math.Vec3d;
 
 public interface UniformHolder {
@@ -46,6 +47,18 @@ public interface UniformHolder {
 		return this;
 	}
 
+	default UniformHolder uniform2f(UniformUpdateFrequency updateFrequency, String name, Supplier<Vec2f> value) {
+		location(name).ifPresent(id -> addUniform(updateFrequency, new Vector2Uniform(id, value, true)));
+
+		return this;
+	}
+
+	default UniformHolder uniform2i(UniformUpdateFrequency updateFrequency, String name, Supplier<Vec2f> value) {
+		location(name).ifPresent(id -> addUniform(updateFrequency, new Vector2Uniform(id, value, false)));
+
+		return this;
+	}
+
 	default UniformHolder uniform3f(UniformUpdateFrequency updateFrequency, String name, Supplier<Vector3f> value) {
 		location(name).ifPresent(id -> addUniform(updateFrequency, new Vector3Uniform(id, value)));
 
@@ -72,6 +85,12 @@ public interface UniformHolder {
 
 	default UniformHolder uniformMatrix(UniformUpdateFrequency updateFrequency, String name, Supplier<Matrix4f> value) {
 		location(name).ifPresent(id -> addUniform(updateFrequency, new MatrixUniform(id, value)));
+
+		return this;
+	}
+
+	default UniformHolder uniformJomlMatrix(UniformUpdateFrequency updateFrequency, String name, Supplier<net.coderbot.iris.vendored.joml.Matrix4f> value) {
+		location(name).ifPresent(id -> addUniform(updateFrequency, new JomlMatrixUniform(id, value)));
 
 		return this;
 	}

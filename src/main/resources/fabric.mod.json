@@ -27,9 +27,12 @@
         ]
     },
 
-    "mixins": [
-        "mixins.iris.json"
-    ],
+  "mixins": [
+    "mixins.iris.json",
+    "mixins.iris.yeetphysicsmod.json",
+    "mixins.iris.fantastic.json",
+    "mixins.iris.vertexformat.json"
+  ],
 
     "depends": {
         "fabricloader": ">=0.7.4",
@@ -39,9 +42,8 @@
         "fabric-lifecycle-events-v1": ">=1.2.0"
     },
 
-    "breaks": {
-        "canvas": "*",
-        "optifabric": "*",
-        "sodium": "*"
-    }
+  "breaks": {
+    "canvas": "*",
+    "optifabric": "*"
+  }
 }

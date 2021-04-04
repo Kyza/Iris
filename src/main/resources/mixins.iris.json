@@ -4,6 +4,7 @@
   "package": "net.coderbot.iris.mixin",
   "compatibilityLevel": "JAVA_8",
   "client": [
+    "MixinBakedQuad",
     "MixinDebugHud",
     "MixinGameRenderer",
     "MixinGlStateManager",
@@ -27,7 +28,9 @@
     "texunits.MixinGlStateManager",
     "texunits.MixinLightmapTextureManager",
     "texunits.MixinOverlayTexture",
-    "texunits.MixinVertexFormats"
+    "texunits.MixinVertexFormats",
+    "MixinModelViewBobbing",
+    "MixinTweakFarPlane"
   ],
   "injectors": {
     "defaultRequire": 1
