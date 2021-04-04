@@ -17,7 +17,7 @@
     "MixinWorldRenderer",
     "fabulous.MixinDisableFabulousGraphics",
     "fabulous.MixinOption",
-    "gbuffer.MixinWorldRenderer",
+    "MixinWorldRenderer",
     "gui.AccessorScreen",
     "gui.MixinVideoOptionsScreen",
     "renderlayer.MixinFixEyesTranslucency",

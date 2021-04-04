@@ -33,7 +33,7 @@ public class MixinTranslationStorage {
 
 	@Inject(method = "get", at = @At("HEAD"), cancellable = true)
 	private void iris$addLanguageEntries(String key, CallbackInfoReturnable<String> cir) {
-		ShaderPack pack = Iris.getCurrentPack().orElse(null);
+		ShaderPack pack = Iris.getCurrentPack();
 
 		if (pack == null) {
 			// If no shaderpack is loaded, do not try to process language overrides.

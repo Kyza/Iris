@@ -177,7 +177,8 @@ public class IrisConfig {
 		properties.setProperty("condenseShaderConfig", Boolean.toString(getIfCondensedShaderConfig()));
 
 		return properties;
-  /**
+	}
+	/**
 	 * Determines whether or not shaders are used for rendering.
 	 *
 	 * @return False to disable all shader-based rendering, true to enable shader-based rendering.

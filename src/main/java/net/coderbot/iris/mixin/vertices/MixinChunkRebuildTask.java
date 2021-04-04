@@ -47,7 +47,7 @@ public class MixinChunkRebuildTask {
 
 	@Unique
 	private IdMap getIdMap() {
-		ShaderPack pack = Iris.getCurrentPack().orElse(null);
+		ShaderPack pack = Iris.getCurrentPack();
 
 		if (pack == null) {
 			return null;

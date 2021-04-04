@@ -3,6 +3,7 @@ package net.coderbot.iris.shaderpack;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
@@ -30,9 +31,11 @@ public class ShaderPack {
 	private final ProgramSet nether;
 	private final ProgramSet end;
 
-	private final IdMap idMap;
-	private final Map<String, Map<String, String>> langMap;
-	private final ShaderProperties shaderProperties;
+	private IdMap idMap;
+	private Map<String, Map<String, String>> langMap;
+	private ShaderProperties shaderProperties;
+	private ProgramSource compositeFinal;
+	private PackDirectives packDirectives;
 
 	public ShaderPack(Path root) throws IOException {
 		ShaderProperties shaderProperties = loadProperties(root, "shaders.properties")
@@ -49,19 +52,21 @@ public class ShaderPack {
 	}
 
 	@Nullable
-	private static ProgramSet loadOverrides(Path root, String subfolder, ShaderProperties shaderProperties, ShaderPack pack) throws IOException {
+	private ProgramSet loadOverrides(Path root, String subfolder, ShaderProperties shaderProperties, ShaderPack pack) throws IOException {
 		Path sub = root.resolve(subfolder);
 
 		if (Files.exists(sub)) {
 			return new ProgramSet(sub, root, shaderProperties, pack);
 		}
 
-		this.compositeFinal = readProgramSource(root, "final", this, shaderProperties);
+//		this.compositeFinal = readProgramSource(root, "final", this, this.base, shaderProperties);
+//
+//		this.idMap = new IdMap(root);
+//		this.langMap = parseLangEntries(root);
+//
+//		this.shaderProperties = shaderProperties;
 
-		this.idMap = new IdMap(root);
-		this.langMap = parseLangEntries(root);
-
-		this.shaderProperties = shaderProperties;
+		return null;
 	}
 
 	// TODO: Copy-paste from IdMap, find a way to deduplicate this
@@ -115,8 +120,9 @@ public class ShaderPack {
 		return this.shaderProperties.asProperties();
 	}
 
-	private static ProgramSource readProgramSource(Path root, String program, ShaderPack pack, ShaderProperties properties) throws IOException {
+	private static ProgramSource readProgramSource(Path root, Path inclusionRoot, String program, ProgramSet programSet, ShaderProperties properties) throws IOException {
 		String vertexSource = null;
+		String geometrySource = null;
 		String fragmentSource = null;
 
 		try {
@@ -125,6 +131,18 @@ public class ShaderPack {
 
 			if (vertexSource != null) {
 				vertexSource = ShaderPreprocessor.process(root, vertexPath, vertexSource);
+			}
+		} catch (IOException e) {
+			// TODO: Better handling?
+			throw e;
+		}
+
+		try {
+			Path geometryPath = root.resolve(program + ".gsh");
+			geometrySource = readFile(geometryPath);
+
+			if (geometrySource != null) {
+				geometrySource = ShaderPreprocessor.process(inclusionRoot, geometryPath, geometrySource);
 			}
 		} catch (IOException e) {
 			// TODO: Better handling?
@@ -143,7 +161,7 @@ public class ShaderPack {
 			throw e;
 		}
 
-		return new ProgramSource(program, vertexSource, fragmentSource, pack, properties);
+		return new ProgramSource(program, vertexSource, geometrySource, fragmentSource, programSet, properties);
 	}
 
 	private static String readFile(Path path) throws IOException {

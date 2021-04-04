@@ -2,7 +2,6 @@ package net.coderbot.iris;
 
 import java.io.IOException;
 import java.nio.file.*;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.zip.ZipException;
 
@@ -12,7 +11,6 @@ import net.coderbot.iris.pipeline.*;
 import net.coderbot.iris.shaderpack.DimensionId;
 import net.coderbot.iris.shaderpack.ProgramSet;
 import net.coderbot.iris.shaderpack.ShaderPack;
-import net.minecraft.util.Tickable;
 import net.minecraft.client.world.ClientWorld;
 import net.minecraft.util.registry.RegistryKey;
 import net.minecraft.world.World;
@@ -311,8 +309,8 @@ public class Iris implements ClientModInitializer {
 		return pipelineManager;
 	}
 
-	public static Optional<ShaderPack> getCurrentPack() {
-		return Optional.ofNullable(currentPack);
+	public static ShaderPack getCurrentPack() {
+		return currentPack;
 	}
 
 	public static String getCurrentPackName() {
